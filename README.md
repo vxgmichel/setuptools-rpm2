@@ -1,9 +1,9 @@
 rpm2
 ====
 
-Provide a setuptools command called bdist_rpm2.
+Provide a modified version setuptools command `bdist_rpm` called `bdist_rpm2`.
 
-It adds two extra user options to the `bdist_rpm` setuptools command:
+It adds two extra user options to the `bdist_rpm`:
 - name-prefix: specify a custom prefix name for the RPM build
 - run-test: add 'python setup.py test' to the %check section
 
