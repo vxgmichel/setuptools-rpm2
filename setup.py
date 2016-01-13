@@ -14,7 +14,7 @@ def safe_read(fname):
 # Setup
 setup(
     name="rpm2",
-    version="0.1.0",
+    version="0.1.1",
     packages=['rpm2'],
     description="Provide a setuptools command called bdist_rpm2",
     long_description=safe_read("README.md"),
