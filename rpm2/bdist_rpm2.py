@@ -1,9 +1,10 @@
 """Provide the setuptools command bdist_rpm2."""
 
 import os
+from distutils import dir_util
+from distutils.errors import DistutilsOptionError
 from setuptools.command.bdist_rpm import bdist_rpm
 from setuptools.command.sdist import sdist
-from distutils.errors import DistutilsOptionError
 
 
 class bdist_rpm2(bdist_rpm):
@@ -126,3 +127,18 @@ class sdist2(sdist):
         except AttributeError:
             pass
         return sdist.make_archive(self, base_name, *args, **kwargs)
+
+    def make_distribution(self):
+        metadata = self.distribution.metadata
+        try:
+            sdist.make_distribution(self)
+        except OSError as exc:
+            if getattr(exc, 'errno', None) != 2:
+                raise
+            if self.keep_temp:
+                raise
+            if not getattr(metadata, 'rpm_name_prefix', None):
+                raise
+            base_dir = self.distribution.get_fullname()
+            base_dir = '-'.join((metadata.rpm_name_prefix, base_dir))
+            dir_util.remove_tree(base_dir, dry_run=self.dry_run)
