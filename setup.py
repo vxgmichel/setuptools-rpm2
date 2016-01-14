@@ -18,7 +18,9 @@ setup(
     packages=['rpm2'],
     description="Provide a setuptools command called bdist_rpm2",
     long_description=safe_read("README.md"),
-    entry_points={'distutils.commands': ['bdist_rpm2 = rpm2.bdist_rpm2:bdist_rpm2']},
+    entry_points={'distutils.commands':
+        ['bdist_rpm2 = rpm2.bdist_rpm2:bdist_rpm2',
+         'sdist2 = rpm2.sdist2:sdist2']},
 
     author="Vincent Michel",
     author_email="vincent.michel@maxlab.lu.se",

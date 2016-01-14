@@ -1,17 +1,22 @@
 """Provide the setuptools command bdist_rpm2."""
 
 import os
-from distutils import dir_util
-from distutils.errors import DistutilsOptionError
+import string
+
 from setuptools.command.bdist_rpm import bdist_rpm
-from setuptools.command.sdist import sdist
+
+
+from distutils.debug import DEBUG
+from distutils.file_util import write_file
+from distutils.sysconfig import get_python_version
+from distutils.errors import DistutilsFileError, DistutilsExecError
+from distutils import log
 
 
 class bdist_rpm2(bdist_rpm):
     """Add two extra user options to the setuptools bdist_rpm command:
-     --name-prefix: specify a custom prefix name for the RPM build
-     --run-test: add 'python setup.py test' to the %check section
-     --spec-and-source: generate the spec file and the source distribution
+     --name-prefix: add a prefix to the distribution name (joined with '-')
+     --add-test: add 'python setup.py test' to the %check section
     """
 
     # Description
@@ -22,123 +27,183 @@ class bdist_rpm2(bdist_rpm):
 
     # Add name-prefix option
     user_options.append((
-        'name-prefix=', None,
-        "Specify a custom prefix name for the RPM build"))
+        'dist-prefix=', None,
+        "Add a prefix to the distribution name (joined with '-')"))
 
     # Add run-test option
     user_options.append((
-        'run-test', None,
+        'add-test', None,
         "Add 'python setup.py test' to the %check section"))
 
-    # Add run-test option
-    user_options.append((
-        'spec-and-source', None,
-        "Generate only the spec file and the source distribution"))
-
     def initialize_options(self):
-        self.name_prefix = ''
-        self.run_test = 0
-        self.spec_and_source = 0
+        self.dist_prefix = ''
+        self.add_test = 0
         bdist_rpm.initialize_options(self)
 
     def finalize_package_data(self):
-        # Name prefix argument
-        self.ensure_string('name_prefix')
-        self.name_prefix = self.name_prefix.rstrip('-')
-        # Spec and source argument
-        if self.spec_and_source and self.spec_only:
-            raise DistutilsOptionError(
-                "cannot supply both '--spec-only' and '--spec-and-source'")
-        if self.spec_and_source:
-            self.spec_only = 1
+        self.ensure_string('dist_prefix')
+        self.dist_prefix = self.dist_prefix.rstrip('-')
         bdist_rpm.finalize_package_data(self)
 
-    def run(self):
-        # Prepare run
-        metadata = self.distribution.metadata
-        metadata.rpm_name_prefix = self.name_prefix
-        save_sdist = self.distribution.get_command_class('sdist')
-        self.distribution.cmdclass['sdist'] = sdist2
-        # Run bdist_rpm
-        try:
-            bdist_rpm.run(self)
-            if self.spec_and_source:
-                self._make_source_dist()
-        # Revert the change
-        finally:
-            self.distribution.cmdclass['sdict'] = save_sdist
-            del metadata.rpm_name_prefix
-
-    def execute(self, func, args, msg):
-        try:
-            if self.name_prefix and args[0].endswith('.spec'):
-                base, name = os.path.split(args[0])
-                new_name = '-'.join((self.name_prefix, name))
-                base_name = os.path.join(base, new_name)
-                args = (base_name,) + args[1:]
-        except (AttributeError, TypeError, IndexError):
-            pass
-        return bdist_rpm.execute(self, func, args, msg)
-
-    def _make_source_dist(self):
-        saved_dist_files = self.distribution.dist_files[:]
-        try:
-            sdist = self.reinitialize_command('sdist')
-            sdist.dist_dir = self.dist_dir
-            sdist.formats = ['bztar'] if self.use_bzip2 else ['gztar']
-            self.run_command('sdist')
-        finally:
-            self.distribution.dist_files = saved_dist_files
+    def add_dist_prefix(self, name):
+        if not self.dist_prefix:
+            return name
+        return '-'.join((self.dist_prefix, name))
 
     def _make_spec_file(self):
         spec_file = bdist_rpm._make_spec_file(self)
         # Add tests to the spec file
-        if self.run_test:
+        if self.add_test:
             test_call = "%s setup.py test" % self.python
             spec_file.extend(['', '%check', test_call])
-        # Add name prefix
-        if self.name_prefix:
+        # Add dist prefix
+        if self.dist_prefix:
             name = self.distribution.get_name()
-            name = '-'.join((self.name_prefix, name))
-            spec_file[0] = "%define name " + name
+            spec_file[0] = "%define name " + self.add_dist_prefix(name)
         return spec_file
 
+    # The rest of the file is shamelessly copied from
+    # distutils/command/bdist_rpm.py. The only modifications are:
+    # - the declaration of the `spec_path` variable, where the distribution
+    # name is prefixed using the corresponding user option
+    # - the use of `sdist2` instead of `sdist`
 
-class sdist2(sdist):
+    def run(self):
 
-    def make_release_tree(self, base_dir, files):
-        metadata = self.distribution.metadata
+        # ensure distro name is up-to-date
+        self.run_command('egg_info')
+
+        if DEBUG:
+            print "before _get_package_data():"
+            print "vendor =", self.vendor
+            print "packager =", self.packager
+            print "doc_files =", self.doc_files
+            print "changelog =", self.changelog
+
+        # make directories
+        if self.spec_only:
+            spec_dir = self.dist_dir
+            self.mkpath(spec_dir)
+        else:
+            rpm_dir = {}
+            for d in ('SOURCES', 'SPECS', 'BUILD', 'RPMS', 'SRPMS'):
+                rpm_dir[d] = os.path.join(self.rpm_base, d)
+                self.mkpath(rpm_dir[d])
+            spec_dir = rpm_dir['SPECS']
+
+        # Spec file goes into 'dist_dir' if '--spec-only specified',
+        # build/rpm.<plat> otherwise.
+        spec_path = os.path.join(
+            spec_dir,
+            "%s.spec" % self.add_dist_prefix(self.distribution.get_name()))
+        self.execute(write_file,
+                     (spec_path,
+                      self._make_spec_file()),
+                     "writing '%s'" % spec_path)
+
+        if self.spec_only:  # stop if requested
+            return
+
+        # Make a source distribution and copy to SOURCES directory with
+        # optional icon.
+        saved_dist_files = self.distribution.dist_files[:]
+        sdist = self.reinitialize_command('sdist2')
+        sdist.dist_prefix = self.dist_prefix
+        if self.use_bzip2:
+            sdist.formats = ['bztar']
+        else:
+            sdist.formats = ['gztar']
+        self.run_command('sdist2')
+        self.distribution.dist_files = saved_dist_files
+
+        source = sdist.get_archive_files()[0]
+        source_dir = rpm_dir['SOURCES']
+        self.copy_file(source, source_dir)
+
+        if self.icon:
+            if os.path.exists(self.icon):
+                self.copy_file(self.icon, source_dir)
+            else:
+                error = "icon file '%s' does not exist" % self.icon
+                raise DistutilsFileError(error)
+
+        # build package
+        log.info("building RPMs")
+        rpm_cmd = ['rpm']
+        if os.path.exists('/usr/bin/rpmbuild') or \
+           os.path.exists('/bin/rpmbuild'):
+            rpm_cmd = ['rpmbuild']
+
+        if self.source_only:  # what kind of RPMs?
+            rpm_cmd.append('-bs')
+        elif self.binary_only:
+            rpm_cmd.append('-bb')
+        else:
+            rpm_cmd.append('-ba')
+        if self.rpm3_mode:
+            rpm_cmd.extend(['--define',
+                            '_topdir %s' % os.path.abspath(self.rpm_base)])
+        if not self.keep_temp:
+            rpm_cmd.append('--clean')
+
+        if self.quiet:
+            rpm_cmd.append('--quiet')
+
+        rpm_cmd.append(spec_path)
+        # Determine the binary rpm names that should be built out of this spec
+        # file
+        # Note that some of these may not be really built (if the file
+        # list is empty)
+        nvr_string = "%{name}-%{version}-%{release}"
+        src_rpm = nvr_string + ".src.rpm"
+        non_src_rpm = "%{arch}/" + nvr_string + ".%{arch}.rpm"
+        q_cmd = r"rpm -q --qf '%s %s\n' --specfile '%s'" % (
+            src_rpm, non_src_rpm, spec_path)
+
+        out = os.popen(q_cmd)
         try:
-            if metadata.rpm_name_prefix:
-                base_dir = '-'.join((metadata.rpm_name_prefix, base_dir))
-        except AttributeError:
-            pass
-        return sdist.make_release_tree(self, base_dir, files)
+            binary_rpms = []
+            source_rpm = None
+            while 1:
+                line = out.readline()
+                if not line:
+                    break
+                l = string.split(string.strip(line))
+                assert(len(l) == 2)
+                binary_rpms.append(l[1])
+                # The source rpm is named after the first entry in the specfile
+                if source_rpm is None:
+                    source_rpm = l[0]
 
-    def make_archive(self, base_name, *args, **kwargs):
-        metadata = self.distribution.metadata
-        try:
-            if metadata.rpm_name_prefix:
-                base, name = os.path.split(base_name)
-                new_name = '-'.join((metadata.rpm_name_prefix, name))
-                base_name = os.path.join(base, new_name)
-                if 'base_dir' in kwargs:
-                    kwargs['base_dir'] = new_name
-        except AttributeError:
-            pass
-        return sdist.make_archive(self, base_name, *args, **kwargs)
+            status = out.close()
+            if status:
+                raise DistutilsExecError("Failed to execute: %s" % repr(q_cmd))
 
-    def make_distribution(self):
-        metadata = self.distribution.metadata
-        try:
-            sdist.make_distribution(self)
-        except OSError as exc:
-            if getattr(exc, 'errno', None) != 2:
-                raise
-            if self.keep_temp:
-                raise
-            if not getattr(metadata, 'rpm_name_prefix', None):
-                raise
-            base_dir = self.distribution.get_fullname()
-            base_dir = '-'.join((metadata.rpm_name_prefix, base_dir))
-            dir_util.remove_tree(base_dir, dry_run=self.dry_run)
+        finally:
+            out.close()
+
+        self.spawn(rpm_cmd)
+
+        if not self.dry_run:
+            if self.distribution.has_ext_modules():
+                pyversion = get_python_version()
+            else:
+                pyversion = 'any'
+
+            if not self.binary_only:
+                srpm = os.path.join(rpm_dir['SRPMS'], source_rpm)
+                assert(os.path.exists(srpm))
+                self.move_file(srpm, self.dist_dir)
+                filename = os.path.join(self.dist_dir, source_rpm)
+                self.distribution.dist_files.append(
+                    ('bdist_rpm', pyversion, filename))
+
+            if not self.source_only:
+                for rpm in binary_rpms:
+                    rpm = os.path.join(rpm_dir['RPMS'], rpm)
+                    if os.path.exists(rpm):
+                        self.move_file(rpm, self.dist_dir)
+                        filename = os.path.join(self.dist_dir,
+                                                os.path.basename(rpm))
+                        self.distribution.dist_files.append(
+                            ('bdist_rpm', pyversion, filename))
