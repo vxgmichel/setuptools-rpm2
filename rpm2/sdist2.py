@@ -36,6 +36,8 @@ class sdist2(sdist):
     # distutils/command/sdist.py. The only modifications are:
     # - the declaration of the `base_dir` variable, where the distribution
     # name is prefixed using the corresponding user option
+    # - use `self.owner` and `self.group` if they exist (python 2.6
+    # compatibility)
 
     def make_distribution(self):
         """Create the source distribution(s).  First, we create the release
@@ -57,8 +59,12 @@ class sdist2(sdist):
             self.formats.append(self.formats.pop(self.formats.index('tar')))
 
         for fmt in self.formats:
+            try:
+                kwargs = {'owner': self.owner, 'group': self.group}
+            except AttributeError:
+                kwargs = {}
             file = self.make_archive(base_name, fmt, base_dir=base_dir,
-                                     owner=self.owner, group=self.group)
+                                     **kwargs)
             archive_files.append(file)
             self.distribution.dist_files.append(('sdist', '', file))
 
