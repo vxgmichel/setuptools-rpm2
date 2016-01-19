@@ -146,7 +146,7 @@ class bdist_rpm2(bdist_rpm):
         if not self.keep_temp:
             rpm_cmd.append('--clean')
 
-        if self.quiet:
+        if hasattr(self, 'quiet') and self.quiet:
             rpm_cmd.append('--quiet')
 
         rpm_cmd.append(spec_path)
