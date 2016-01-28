@@ -45,8 +45,7 @@ class bdist_rpm2(bdist_rpm):
         self.dist_name = self.dist_name.strip()
         bdist_rpm.finalize_package_data(self)
 
-    @property
-    def distribution_name(self):
+    def get_distribution_name(self):
         if self.dist_name:
             return self.dist_name
         return self.distribution.get_name()
@@ -65,7 +64,7 @@ class bdist_rpm2(bdist_rpm):
     # The rest of the file is shamelessly copied from
     # distutils/command/bdist_rpm.py. The only modifications are:
     # - the declaration of the `spec_path` variable, where the distribution
-    # name is `self.distribution_name`
+    # name is `self.get_distribution_name()`
     # - the use of `sdist2` instead of `sdist`
 
     def run(self):
@@ -93,9 +92,10 @@ class bdist_rpm2(bdist_rpm):
 
         # Spec file goes into 'dist_dir' if '--spec-only specified',
         # build/rpm.<plat> otherwise.
+
         spec_path = os.path.join(
             spec_dir,
-            "%s.spec" % self.distribution_name)
+            "%s.spec" % self.get_distribution_name())
         self.execute(write_file,
                      (spec_path,
                       self._make_spec_file()),

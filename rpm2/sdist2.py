@@ -31,16 +31,17 @@ class sdist2(sdist):
         self.dist_name = self.dist_name.strip()
         sdist.finalize_package_data(self)
 
-    @property
-    def distribution_name(self):
-        if self.dist_name:
-            return self.dist_name
-        return self.distribution.get_name()
+    def get_distribution_fullname(self):
+        fullname = self.distribution.get_fullname()
+        if not self.dist_name:
+            return fullname
+        old_name = self.distribution.get_name()
+        return fullname.replace(old_name, self.dist_name)
 
     # The rest of the file is shamelessly copied from
     # distutils/command/sdist.py. The only modifications are:
     # - the declaration of the `base_dir` variable, where the distribution
-    # name is prefixed using the corresponding user option
+    # name is `self.get_distribution_fullname()`
     # - use `self.owner` and `self.group` if they exist (python 2.6
     # compatibility)
 
@@ -54,7 +55,7 @@ class sdist2(sdist):
         """
         # Don't warn about missing meta-data here -- should be (and is!)
         # done elsewhere.
-        base_dir = self.distribution_name
+        base_dir = self.get_distribution_fullname()
         base_name = os.path.join(self.dist_dir, base_dir)
 
         self.make_release_tree(base_dir, self.filelist.files)
