@@ -15,7 +15,7 @@ from distutils import log
 
 class bdist_rpm2(bdist_rpm):
     """Add two extra user options to the setuptools bdist_rpm command:
-     --name-prefix: add a prefix to the distribution name (joined with '-')
+     --dist-name: specify a different distribution name
      --add-test: add 'python setup.py test' to the %check section
     """
 
@@ -27,8 +27,8 @@ class bdist_rpm2(bdist_rpm):
 
     # Add name-prefix option
     user_options.append((
-        'dist-prefix=', None,
-        "Add a prefix to the distribution name (joined with '-')"))
+        'dist-name=', None,
+        "Specify a different distribution name"))
 
     # Add run-test option
     user_options.append((
@@ -36,19 +36,20 @@ class bdist_rpm2(bdist_rpm):
         "Add 'python setup.py test' to the %check section"))
 
     def initialize_options(self):
-        self.dist_prefix = ''
+        self.dist_name = ''
         self.add_test = 0
         bdist_rpm.initialize_options(self)
 
     def finalize_package_data(self):
-        self.ensure_string('dist_prefix')
-        self.dist_prefix = self.dist_prefix.rstrip('-')
+        self.ensure_string('dist_name')
+        self.dist_name = self.dist_name.strip()
         bdist_rpm.finalize_package_data(self)
 
-    def add_dist_prefix(self, name):
-        if not self.dist_prefix:
-            return name
-        return '-'.join((self.dist_prefix, name))
+    @property
+    def distribution_name(self):
+        if self.dist_name:
+            return self.dist_name
+        return self.distribution.get_name()
 
     def _make_spec_file(self):
         spec_file = bdist_rpm._make_spec_file(self)
@@ -56,16 +57,15 @@ class bdist_rpm2(bdist_rpm):
         if self.add_test:
             test_call = "%s setup.py test" % self.python
             spec_file.extend(['', '%check', test_call])
-        # Add dist prefix
-        if self.dist_prefix:
-            name = self.distribution.get_name()
-            spec_file[0] = "%define name " + self.add_dist_prefix(name)
+        # Change dist name
+        if self.dist_name:
+            spec_file[0] = "%define name " + self.dist_name
         return spec_file
 
     # The rest of the file is shamelessly copied from
     # distutils/command/bdist_rpm.py. The only modifications are:
     # - the declaration of the `spec_path` variable, where the distribution
-    # name is prefixed using the corresponding user option
+    # name is `self.distribution_name`
     # - the use of `sdist2` instead of `sdist`
 
     def run(self):
@@ -95,7 +95,7 @@ class bdist_rpm2(bdist_rpm):
         # build/rpm.<plat> otherwise.
         spec_path = os.path.join(
             spec_dir,
-            "%s.spec" % self.add_dist_prefix(self.distribution.get_name()))
+            "%s.spec" % self.distribution_name)
         self.execute(write_file,
                      (spec_path,
                       self._make_spec_file()),
@@ -108,7 +108,7 @@ class bdist_rpm2(bdist_rpm):
         # optional icon.
         saved_dist_files = self.distribution.dist_files[:]
         sdist = self.reinitialize_command('sdist2')
-        sdist.dist_prefix = self.dist_prefix
+        sdist.dist_name = self.dist_name
         if self.use_bzip2:
             sdist.formats = ['bztar']
         else:

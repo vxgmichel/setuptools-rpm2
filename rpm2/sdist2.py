@@ -6,6 +6,10 @@ from setuptools.command.sdist import sdist
 
 
 class sdist2(sdist):
+    """Add two extra user options to the setuptools bdist_rpm command:
+     --dist-name: specify a different distribution name
+     --add-test: add 'python setup.py test' to the %check section
+    """
 
     # Description
     description = "modified version of sdist"
@@ -15,22 +19,23 @@ class sdist2(sdist):
 
     # Add name-prefix option
     user_options.append((
-        'dist-prefix=', None,
-        "Add a prefix to the distribution name (joined with '-')"))
+        'dist-name=', None,
+        "Specify a different distribution name"))
 
     def initialize_options(self):
-        self.dist_prefix = ''
+        self.dist_name = ''
         sdist.initialize_options(self)
 
     def finalize_package_data(self):
-        self.ensure_string('dist_prefix')
-        self.dist_prefix = self.dist_prefix.rstrip('-')
+        self.ensure_string('dist_name')
+        self.dist_name = self.dist_name.strip()
         sdist.finalize_package_data(self)
 
-    def add_dist_prefix(self, name):
-        if not self.dist_prefix:
-            return name
-        return '-'.join((self.dist_prefix, name))
+    @property
+    def distribution_name(self):
+        if self.dist_name:
+            return self.dist_name
+        return self.distribution.get_name()
 
     # The rest of the file is shamelessly copied from
     # distutils/command/sdist.py. The only modifications are:
@@ -49,7 +54,7 @@ class sdist2(sdist):
         """
         # Don't warn about missing meta-data here -- should be (and is!)
         # done elsewhere.
-        base_dir = self.add_dist_prefix(self.distribution.get_fullname())
+        base_dir = self.distribution_name
         base_name = os.path.join(self.dist_dir, base_dir)
 
         self.make_release_tree(base_dir, self.filelist.files)
