@@ -43,6 +43,11 @@ class bdist_rpm2(bdist_rpm):
     def finalize_package_data(self):
         self.ensure_string('dist_name')
         self.dist_name = self.dist_name.strip()
+        # Patch EncodingError in bdist_rpm
+        email = self.distribution.author_email
+        email = self.distribution._encode_field(email)
+        self.distribution.author_email = email
+        # Call parent
         bdist_rpm.finalize_package_data(self)
 
     def get_distribution_name(self):
